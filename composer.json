@@ -1,0 +1,19 @@
+{
+    "repositories": [
+        {
+            "type": "package",
+            "package": {
+                "name": "dominic-ks/oauth-signature-js",
+                "version": "dev-master",
+                "source": {
+                    "url": "https://github.com/dominic-ks/oauth-signature-js",
+                    "type": "git",
+                    "reference": "origin/master"
+                }
+            }
+        },
+    ],
+    "require": {
+        "dominic-ks/oauth-signature-js": "dev-master",
+    }
+}
