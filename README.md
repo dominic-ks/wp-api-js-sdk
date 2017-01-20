@@ -4,6 +4,49 @@ This project is attempting to create a JS / jQuery library for connecting to a W
 
 Initially designed for use with a Phonegap / Cordova application, it is TBC whether the scope will also cover browser applications due to security issues surrounding the client secret.Initially
 
+# Installation - Via Composer
+
+```
+{
+  "repositories": [
+  {
+    "type": "package",
+    "package": {
+      "name": "dominic-ks/oauth-signature-js",
+      "version": "dev-master",
+      "source": {
+        "url": "https://github.com/dominic-ks/oauth-signature-js",
+        "type": "git",
+        "reference": "origin/master"
+      }
+    }
+  },
+  {
+    "type": "package",
+    "package": {
+      "name": "dominic-ks/wp-api-js-sdk",
+      "version": "dev-master",
+      "source": {
+        "url": "https://github.com/dominic-ks/wp-api-js-sdk",
+        "type": "git",
+        "reference": "origin/master"
+      }
+    }
+  }],
+  "require": {
+    "dominic-ks/oauth-signature-js": "dev-master",
+    "dominic-ks/wp-api-js-sdk": "dev-master"
+  }
+}
+```
+Then include both of these in your project:
+```
+/vendor/dominic-ks/oauth-signature/dist/oauth-signature.js
+```
+```
+/vendor/dominic-ks/wp-api-js-sdk/src/app/wp-auth.js
+```
+
 # Basic usage
 
 ```
