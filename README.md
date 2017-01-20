@@ -6,6 +6,7 @@ Initially designed for use with a Phonegap / Cordova application, it is TBC whet
 
 # Basic usage
 
+<code>
   var myAuth = new wpAuth({
     restURL : YOUR_REST_URL,
     cookielessURL : ADDITIONAL_COOKIELESS_REST_URL,
@@ -14,6 +15,7 @@ Initially designed for use with a Phonegap / Cordova application, it is TBC whet
     clientSecret : YOUR_CLIENT_SECRET,
     callBackURL : YOUR_CALLBACK_URL
   });
+  </code>
   
   At present this version of the sdk will automatically initiate the auth process once the above has been run.
   
