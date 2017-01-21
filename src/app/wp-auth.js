@@ -1,3 +1,5 @@
+//Just adding some comments for testing purposes...
+
 function wpAuth( appDetails ) {
 
   //set the object properties
