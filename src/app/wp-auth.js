@@ -26,6 +26,12 @@ wpAuth.prototype = {
   
   genericFunction : function() {},
   
+  save: function() {
+    
+    localStorage.setItem( 'wp_rest_app' , JSON.stringify( this ) );
+    
+  },
+  
   decideAuthAction : function() {
 
     if( localStorage.getItem( 'app_status' ) === 'verified' ) {
@@ -109,6 +115,18 @@ wpAuth.prototype = {
   
   //store the auth urls
   storeRESTroutes : function( jsonRoutes ) {
+    
+    //store the entire routes object in a variable
+    this.restRoutes = jsonRoutes;
+    
+    //store the new status
+    this.appStatus = 'discovered';
+    
+    //store the last time this was updated
+    this.lastUpdated = Math.floor( Date.now() / 1000 ).toString();
+    
+    //save the object
+    this.save();
 
     //on success just populate the urls
     this.accessURL = jsonRoutes.authentication.oauth1.access;
