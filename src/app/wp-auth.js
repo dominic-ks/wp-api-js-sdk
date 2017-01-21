@@ -1,24 +1,37 @@
-//Just adding some comments for testing purposes...
-
 function wpAuth( appDetails ) {
+  
+  //create the storage name for this app
+  var localStorageName = 'wp_rest_app_' + appDetails.clientKey;
+  
+  //check for a saved object
+  if( localStorage.getItem( localStorageName ) !== null ) {
+    
+    //if there is a saved object, transfer it's properties and methods to this
+    var savedObject = JSON.parse( localStorage.getItem( localStorageName ) );
+    
+    //loop through each property and and assign to this
+    for( var key in savedObject ) { 
+      this[ key ] = savedObject[ key ]; 
+    }
+    
+    this.decideAuthAction();
+    
+  } else {
+  
+    //if no saved app details are found, we start building the object
+    this.appDetails = appDetails;
 
-  //set the object properties
-  this.restURL = appDetails.restURL;
-  this.cookielessURL = appDetails.cookielessURL;
-  this.jsonSlug = appDetails.jsonSlug;
-  this.clientKey = appDetails.clientKey;
-  this.clientSecret = appDetails.clientSecret;
-  this.callBackURL = appDetails.callBackURL;
-
-  //set the auth variales
-  this.wpAjax(
-    'GET',
-    this.restURL + this.jsonSlug,
-    this.storeRESTroutes, 
-    this.decideAuthAction,
-    false,
-    false
-  );
+    //set the auth variales
+    this.wpAjax(
+      'GET',
+      this.appDetails.restURL + this.appDetails.jsonSlug,
+      this.storeRESTroutes, 
+      this.decideAuthAction,
+      false,
+      false
+    );
+    
+  }
   
 }
 
@@ -30,7 +43,7 @@ wpAuth.prototype = {
   
   save: function() {
     
-    localStorage.setItem( 'wp_rest_app' , JSON.stringify( this ) );
+    localStorage.setItem( 'wp_rest_app_' + this.appDetails.clientKey , JSON.stringify( this ) );
     
   },
   
@@ -58,7 +71,7 @@ wpAuth.prototype = {
       //otherwise get the temp credentials
       this.wpAjax(
         'POST',
-        this.requestURL,
+        this.restRoutes.authentication.oauth1.request,
         this.requestTempCredentials,
         this.genericFunction,
         true,
@@ -81,12 +94,12 @@ wpAuth.prototype = {
     if( sign === true ) {
 
       data = {
-        oauth_consumer_key: this.clientKey,
+        oauth_consumer_key: this.appDetails.clientKey,
         oauth_signature_method: 'HMAC-SHA1',
         oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
         oauth_nonce: getRandomString(),
-        oauth_version: this.version,
-        oauth_callback: this.callBackURL,
+        oauth_version: this.restRoutes.authentication.oauth1.version,
+        oauth_callback: this.appDetails.callBackURL,
       }
       
       if( tokenVerifier !== false ) {
@@ -100,7 +113,7 @@ wpAuth.prototype = {
         oauthTokenSecret = localStorage.getItem( 'oauth_token_secret' );
       }
 
-      data.oauth_signature = signRequest( httpMethod , ajaxURL , data , this.clientSecret , oauthTokenSecret );
+      data.oauth_signature = signRequest( httpMethod , ajaxURL , data , this.appDetails.clientSecret , oauthTokenSecret );
       
     }
 
@@ -144,7 +157,7 @@ wpAuth.prototype = {
     
     localStorage.setItem( 'oauth_token_secret' ,  getParams.oauth_token_secret ); 
 
-    var authWindow = window.open( this.authorizeURL + '/?' + requestString , '_blank' , 'location=no,zoom=no' );
+    var authWindow = window.open( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no' );
 
     //this only works for apps where an in-app browser window is utilised
     //otherwise the auth window will send the user back to the call back url and
@@ -156,7 +169,7 @@ wpAuth.prototype = {
 
       parts = InAppBrowserEvent.url.split( '?' );
 
-      if( parts[0] !== this.callBackURL ) {
+      if( parts[0] !== this.appDetails.callBackURL ) {
         return; 
       }
 
@@ -190,7 +203,7 @@ wpAuth.prototype = {
     
     this.wpAjax(
       'POST',
-      this.accessURL + '?oauth_verifier=' + oauthVerifier,
+      this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + oauthVerifier,
       this.storeAuthCredentials,
       this.decideAuthAction,
       true,
@@ -203,22 +216,22 @@ wpAuth.prototype = {
   loggedInUser : function() {
 
     var httpMethod = 'GET';
-    var url = this.restURL + this.jsonSlug + 'wp/v2/users/me';
+    var url = this.appDetails.restURL + this.appDetails.jsonSlug + 'wp/v2/users/me';
 
     var data = {
-      oauth_consumer_key: this.clientKey,
+      oauth_consumer_key: this.appDetails.clientKey,
       oauth_signature_method: 'HMAC-SHA1',
       oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
       oauth_nonce: getRandomString(),
-      oauth_version: this.version,
+      oauth_version: this.restRoutes.authentication.oauth1.version,
       oauth_token: localStorage.getItem( 'oauth_token' ),
       oauth_token_secret: localStorage.getItem( 'oauth_token_secret' ),
     }
 
-    data.oauth_signature = signRequest( httpMethod , url , data , this.clientSecret , localStorage.getItem( 'oauth_token_secret' ) );
+    data.oauth_signature = signRequest( httpMethod , url , data , this.appDetails.clientSecret , localStorage.getItem( 'oauth_token_secret' ) );
 
     $.ajax({
-      url: url.replace( this.restURL , this.cookielessURL ),
+      url: url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
       method: httpMethod,
       data: data,
 
