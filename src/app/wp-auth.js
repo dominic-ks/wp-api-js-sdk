@@ -1,6 +1,7 @@
 function wpAuth( appDetails ) {
   
   //create the storage name for this app
+  //uses the client key in the name so that multiple instances can be used
   var localStorageName = 'wp_rest_app_' + appDetails.clientKey;
   
   //check for a saved object
@@ -14,12 +15,24 @@ function wpAuth( appDetails ) {
       this[ key ] = savedObject[ key ]; 
     }
     
+    //check if we're receiving an oauthVerifier to catch tokens coming in on a redirect
+    //NB. this is only relevant to browsers, native apps will trigger this elsewhere
+    if( typeof( getGet().oauth_verifier ) !== 'undefined' ) {
+      //split the url by the ?
+      var parts = window.url().split( '?' );
+      //process the results
+      this.processAuthReady( parts[1] );
+      //redirect to self minus the request params
+      window.location = parts[0];
+    }
+    
     this.decideAuthAction();
     
   } else {
   
     //if no saved app details are found, we start building the object
     this.appDetails = appDetails;
+    this.authTokens = {};
 
     //set the auth variales
     this.wpAjax(
@@ -39,8 +52,6 @@ wpAuth.prototype = {
   
   constructor: wpAuth,
   
-  genericFunction : function() {},
-  
   save: function() {
     
     localStorage.setItem( 'wp_rest_app_' + this.appDetails.clientKey , JSON.stringify( this ) );
@@ -49,22 +60,26 @@ wpAuth.prototype = {
   
   decideAuthAction : function() {
 
-    if( localStorage.getItem( 'app_status' ) === 'verified' ) {
+    if( this.appStatus === 'verified' ) {
 
       //if the app has a verified status, assume we're good to go
       this.loggedInUser();
-
-    } else if ( typeof( getGet().oauth_verifier ) !== 'undefined' ) {
-
-      //if there's a oauth_verifier in the GET then try to get an access token
-      //this is only for browsers
       
-      var getParams = getGet();
+    } else if( this.appStatus === 'auth_ready' ) {
       
-      this.getAccessToken({
-        oauth_token: getParams.oauth_token,
-        oauth_verifier: getParams.oauth_verifier,
-      });
+      var data = {
+        oauth_token: this.authTokens.oauthToken,
+        oauth_verifier: this.authTokens.oauthVerifier,
+      }
+      
+      this.wpAjax(
+        'POST',
+        this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + this.authTokens.oauthVerifier,
+        this.storeAuthCredentials,
+        this.decideAuthAction,
+        true,
+        data
+      );
 
     } else {
 
@@ -73,7 +88,7 @@ wpAuth.prototype = {
         'POST',
         this.restRoutes.authentication.oauth1.request,
         this.requestTempCredentials,
-        this.genericFunction,
+        this.decideAuthAction,
         true,
         false
       );
@@ -83,7 +98,7 @@ wpAuth.prototype = {
   },
 
   //process and ajax request
-  wpAjax : function( httpMethod , ajaxURL , successCallback , completeCallback , sign , tokenVerifier ) {
+  wpAjax : function( httpMethod , ajaxURL , successCallback , completeCallback , sign , requestData ) {
 
     //swap out window.open function 
     //window.open = cordova.InAppBrowser.open;
@@ -102,15 +117,15 @@ wpAuth.prototype = {
         oauth_callback: this.appDetails.callBackURL,
       }
       
-      if( tokenVerifier !== false ) {
-        data.oauth_token = tokenVerifier.oauth_token;
-        data.oauth_verifier = tokenVerifier.oauth_verifier;
+      if( typeof( requestData.oauth_verifier ) !== 'undefined' ) {
+        data.oauth_token = requestData.oauth_token;
+        data.oauth_verifier = requestData.oauth_verifier;
       }
       
       var oauthTokenSecret = '';
       
-      if( localStorage.getItem( 'oauth_token_secret' ) !== null ) { 
-        oauthTokenSecret = localStorage.getItem( 'oauth_token_secret' );
+      if( this.authTokens.oauthTokenSecret !== null ) { 
+        oauthTokenSecret = this.authTokens.oauthTokenSecret;
       }
 
       data.oauth_signature = signRequest( httpMethod , ajaxURL , data , this.appDetails.clientSecret , oauthTokenSecret );
@@ -128,6 +143,40 @@ wpAuth.prototype = {
 
   },
   
+  requestTempCredentials : function( requestString ) {
+
+    var getParams = getGet( requestString );
+    
+    //save the temp token secret
+    this.authTokens.oauthTokenSecret = getParams.oauth_token_secret;
+    this.save();
+
+    //open / redirect to the auth screen
+    var authWindow = window.open( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no' );
+
+    //this only works for apps where an in-app browser window is utilised
+    //otherwise the auth window will send the user back to the call back url and
+    //will be picked up by decideAuthAction
+    authWindow.addEventListener( 'loadstart' , function( InAppBrowserEvent ) {
+
+      //split the url by the ?
+      var parts = InAppBrowserEvent.url.split( '?' );
+
+      //check if the url matches the call back url
+      if( parts[0] !== this.appDetails.callBackURL ) {
+        return; 
+      }
+
+      //if so close the auth window
+      authWindow.close();
+      
+      //process the results
+      this.processAuthReady( parts[1] );
+
+    }.bind( this ) );
+    
+  },
+  
   //store the auth urls
   storeRESTroutes : function( jsonRoutes ) {
     
@@ -142,47 +191,18 @@ wpAuth.prototype = {
     
     //save the object
     this.save();
-
-    //on success just populate the urls
-    this.accessURL = jsonRoutes.authentication.oauth1.access;
-    this.authorizeURL = jsonRoutes.authentication.oauth1.authorize;
-    this.requestURL = jsonRoutes.authentication.oauth1.request;
-    this.version = jsonRoutes.authentication.oauth1.version;
     
   },
   
-  requestTempCredentials : function( requestString ) {
-
-    var getParams = getGet( requestString );
+  processAuthReady : function( requestString ) {
     
-    localStorage.setItem( 'oauth_token_secret' ,  getParams.oauth_token_secret ); 
-
-    var authWindow = window.open( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no' );
-
-    //this only works for apps where an in-app browser window is utilised
-    //otherwise the auth window will send the user back to the call back url and
-    //will be picked up by decideAuthAction
-    authWindow.addEventListener( 'loadstart' , function( InAppBrowserEvent ) {
-
-      var oauthToken;
-      var oauthVerifier;
-
-      parts = InAppBrowserEvent.url.split( '?' );
-
-      if( parts[0] !== this.appDetails.callBackURL ) {
-        return; 
-      }
-
-      getParams = getGet( parts[1] );
-
-      authWindow.close();
+    var getParams = getGet( requestString );
       
-      this.getAccessToken({
-        oauth_token: getParams.oauth_token,
-        oauth_verifier: getParams.oauth_verifier,
-      });
-
-    });
+    //save the retrieved tokens
+    this.appStatus = 'auth_ready';
+    this.authTokens.oauthToken = getParams.oauth_token;
+    this.authTokens.oauthVerifier = getParams.oauth_verifier;
+    this.save();
     
   },
   
@@ -190,26 +210,13 @@ wpAuth.prototype = {
 
     var getParams = getGet( requestString );
     
-    localStorage.setItem( 'app_status' ,  'verified' );
-    localStorage.setItem( 'oauth_token' , getParams.oauth_token );
-    localStorage.setItem( 'oauth_token_secret' , getParams.oauth_token_secret );
+    this.authTokens.oauthVerifier = undefined;
+    this.authTokens.oauthToken = getParams.oauth_token;
+    this.authTokens.oauthTokenSecret = getParams.oauth_token_secret;
+    this.appStatus = 'verified';
     
-  },
-
-  //get an access token
-  getAccessToken : function( tokenVerifier) {
+    this.save();
     
-    var oauthVerifier = tokenVerifier.oauth_verifier;
-    
-    this.wpAjax(
-      'POST',
-      this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + oauthVerifier,
-      this.storeAuthCredentials,
-      this.decideAuthAction,
-      true,
-      tokenVerifier
-    );
-
   },
   
   //function when we're logged in and rocking
@@ -224,11 +231,11 @@ wpAuth.prototype = {
       oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
       oauth_nonce: getRandomString(),
       oauth_version: this.restRoutes.authentication.oauth1.version,
-      oauth_token: localStorage.getItem( 'oauth_token' ),
-      oauth_token_secret: localStorage.getItem( 'oauth_token_secret' ),
+      oauth_token: this.authTokens.oauthToken,
+      oauth_token_secret: this.authTokens.oauthTokenSecret,
     }
 
-    data.oauth_signature = signRequest( httpMethod , url , data , this.appDetails.clientSecret , localStorage.getItem( 'oauth_token_secret' ) );
+    data.oauth_signature = signRequest( httpMethod , url , data , this.appDetails.clientSecret , this.authTokens.oauthTokenSecret );
 
     $.ajax({
       url: url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
