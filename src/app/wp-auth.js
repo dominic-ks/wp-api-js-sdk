@@ -17,7 +17,7 @@ function wpAuth( appDetails ) {
     
     //check if we're receiving an oauthVerifier to catch tokens coming in on a redirect
     //NB. this is only relevant to browsers, native apps will trigger this elsewhere
-    if( typeof( getGet().oauth_verifier ) !== 'undefined' ) {
+    if( typeof( this.getGet().oauth_verifier ) !== 'undefined' ) {
       //split the url by the ?
       var parts = window.url().split( '?' );
       //process the results
@@ -35,14 +35,13 @@ function wpAuth( appDetails ) {
     this.authTokens = {};
 
     //set the auth variales
-    this.wpAjax(
-      'GET',
-      this.appDetails.restURL + this.appDetails.jsonSlug,
-      this.storeRESTroutes, 
-      this.decideAuthAction,
-      false,
-      false
-    );
+    this.wpExecute({
+      method: 'GET',
+      url: this.appDetails.restURL + this.appDetails.jsonSlug,
+      success: this.storeRESTroutes, 
+      complete: this.decideAuthAction,
+      sign: false,
+    });
     
   }
   
@@ -51,6 +50,12 @@ function wpAuth( appDetails ) {
 wpAuth.prototype = {
   
   constructor: wpAuth,
+  
+  genericFunction : function() {},
+  
+  logError : function( message ) {
+    console.log( message );
+  },
   
   save: function() {
     
@@ -72,28 +77,91 @@ wpAuth.prototype = {
         oauth_verifier: this.authTokens.oauthVerifier,
       }
       
-      this.wpAjax(
-        'POST',
-        this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + this.authTokens.oauthVerifier,
-        this.storeAuthCredentials,
-        this.decideAuthAction,
-        true,
-        data
-      );
+      this.wpExecute({
+        method: 'POST',
+        url: this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + this.authTokens.oauthVerifier,
+        success: this.storeAuthCredentials,
+        complete: this.decideAuthAction,
+        sign: true,
+        data: data
+      });
 
     } else {
 
       //otherwise get the temp credentials
-      this.wpAjax(
-        'POST',
-        this.restRoutes.authentication.oauth1.request,
-        this.requestTempCredentials,
-        this.decideAuthAction,
-        true,
-        false
-      );
+      this.wpExecute({
+        method: 'GET',
+        url: this.restRoutes.authentication.oauth1.request,
+        success: this.requestTempCredentials,
+      });
 
     }
+
+  },
+
+  //process and ajax request
+  wpExecute : function( request ) {
+    
+    //set defaults
+    var defaults = {
+      url: false,
+      method: 'GET',
+      success: this.genericFunction,
+      error: this.genericFunction,
+      complete: this.genericFunction,
+      sign: true,
+      data: {},
+    }
+    
+    //check request object and set defaults
+    for( var key in defaults ) { 
+      if( typeof( request[ key ] ) === 'undefined' ) {
+        request[ key ] = defaults[ key ];
+      }
+    }
+    
+    //check a URL has been provided
+    if( request.url === false ) {
+      this.logError( 'URL is required for the wpAuth.execute() method.' );
+    }
+
+    //swap out window.open function 
+    //window.open = cordova.InAppBrowser.open;
+    
+    //sign the request unless it doesn't need it...
+    if( request.sign === true ) {
+
+      request.data.oauth_consumer_key = this.appDetails.clientKey;
+      request.data.oauth_signature_method = 'HMAC-SHA1';
+      request.data.oauth_timestamp = Math.floor( Date.now() / 1000 ).toString();
+      request.data.oauth_nonce = this.getRandomString();
+      request.data.oauth_version = this.restRoutes.authentication.oauth1.version;
+      request.data.oauth_callback = this.appDetails.callBackURL;
+      
+      if( typeof( request.data.oauth_verifier ) !== 'undefined' ) {
+        request.data.oauth_token = request.data.oauth_token;
+        request.data.oauth_verifier = request.data.oauth_verifier;
+      }
+      
+      var oauthTokenSecret = '';
+      
+      if( this.authTokens.oauthTokenSecret !== null ) { 
+        oauthTokenSecret = this.authTokens.oauthTokenSecret;
+      }
+
+      request.data.oauth_signature = this.signRequest( request.method , request.url , request.data , this.appDetails.clientSecret , oauthTokenSecret );
+      
+    }
+
+    //process the ajax
+    $.ajax({
+      method: request.method,
+      url: request.url,
+      data: request.data,
+      success: request.success.bind( this ),
+      error: request.error.bind( this ),
+      complete: request.complete.bind( this ),
+    });
 
   },
 
@@ -112,7 +180,7 @@ wpAuth.prototype = {
         oauth_consumer_key: this.appDetails.clientKey,
         oauth_signature_method: 'HMAC-SHA1',
         oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
-        oauth_nonce: getRandomString(),
+        oauth_nonce: this.getRandomString(),
         oauth_version: this.restRoutes.authentication.oauth1.version,
         oauth_callback: this.appDetails.callBackURL,
       }
@@ -128,7 +196,7 @@ wpAuth.prototype = {
         oauthTokenSecret = this.authTokens.oauthTokenSecret;
       }
 
-      data.oauth_signature = signRequest( httpMethod , ajaxURL , data , this.appDetails.clientSecret , oauthTokenSecret );
+      data.oauth_signature = this.signRequest( httpMethod , ajaxURL , data , this.appDetails.clientSecret , oauthTokenSecret );
       
     }
 
@@ -145,7 +213,7 @@ wpAuth.prototype = {
   
   requestTempCredentials : function( requestString ) {
 
-    var getParams = getGet( requestString );
+    var getParams = this.getGet( requestString );
     
     //save the temp token secret
     this.authTokens.oauthTokenSecret = getParams.oauth_token_secret;
@@ -196,7 +264,7 @@ wpAuth.prototype = {
   
   processAuthReady : function( requestString ) {
     
-    var getParams = getGet( requestString );
+    var getParams = this.getGet( requestString );
       
     //save the retrieved tokens
     this.appStatus = 'auth_ready';
@@ -208,7 +276,7 @@ wpAuth.prototype = {
   
   storeAuthCredentials : function( requestString ) {
 
-    var getParams = getGet( requestString );
+    var getParams = this.getGet( requestString );
     
     this.authTokens.oauthVerifier = undefined;
     this.authTokens.oauthToken = getParams.oauth_token;
@@ -221,6 +289,15 @@ wpAuth.prototype = {
   
   //function when we're logged in and rocking
   loggedInUser : function() {
+    
+    /*this.wpExecute({
+      url: this.appDetails.cookielessURL + this.appDetails.jsonSlug + 'wp/v2/users/me',
+      success: function( response ) {
+        alert( 'Welcome ' + response.name );
+      },
+    });
+    
+    return;*/
 
     var httpMethod = 'GET';
     var url = this.appDetails.restURL + this.appDetails.jsonSlug + 'wp/v2/users/me';
@@ -229,13 +306,13 @@ wpAuth.prototype = {
       oauth_consumer_key: this.appDetails.clientKey,
       oauth_signature_method: 'HMAC-SHA1',
       oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
-      oauth_nonce: getRandomString(),
+      oauth_nonce: this.getRandomString(),
       oauth_version: this.restRoutes.authentication.oauth1.version,
       oauth_token: this.authTokens.oauthToken,
       oauth_token_secret: this.authTokens.oauthTokenSecret,
     }
 
-    data.oauth_signature = signRequest( httpMethod , url , data , this.appDetails.clientSecret , this.authTokens.oauthTokenSecret );
+    data.oauth_signature = this.signRequest( httpMethod , url , data , this.appDetails.clientSecret , this.authTokens.oauthTokenSecret );
 
     $.ajax({
       url: url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
@@ -252,45 +329,45 @@ wpAuth.prototype = {
 
   },
 
-}
+  //sign requests
+  signRequest : function( httpMethod , url , parameters , consumerSecret , tokenSecret ) {
 
-//sign requests
-function signRequest( httpMethod , url , parameters , consumerSecret , tokenSecret ) {
-    
-  var signature = oauthSignature.generate( httpMethod , url , parameters , consumerSecret , tokenSecret , { encodeSignature: false } );
-  
-  return signature;
-  
-}
+    var signature = oauthSignature.generate( httpMethod , url , parameters , consumerSecret , tokenSecret , { encodeSignature: false } );
 
-//generate random strings to use as nonces
-function getRandomString() {
-  
-  var text = "";
-  var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  for( var i = 0; i < 10; i++ ) {
-    text += possible.charAt( Math.floor( Math.random() * possible.length ) );
+    return signature;
+
+  },
+
+  //generate random strings to use as nonces
+  getRandomString : function() {
+
+    var text = "";
+    var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for( var i = 0; i < 10; i++ ) {
+      text += possible.charAt( Math.floor( Math.random() * possible.length ) );
+    }
+
+    return text;
+
+  },
+
+  //return an object of GET parameters
+  getGet : function( stringer ) {
+
+    var paramObject = [];
+    var tmp = [];
+
+    if( typeof( stringer ) == 'undefined' ) {
+      stringer = location.search.substr( 1 );
+    }
+
+    stringer.split( '&' ).forEach( function( item ) {
+      tmp = item.split( '=' );
+      paramObject[ tmp[0] ] = tmp[1];
+    });
+
+    return paramObject;
+
   }
-  
-  return text;
-  
-}
 
-//return an object of GET parameters
-function getGet( stringer ) {
-  
-  var paramObject = [];
-  var tmp = [];
-  
-  if( typeof( stringer ) == 'undefined' ) {
-    stringer = location.search.substr( 1 );
-  }
-  
-  stringer.split( '&' ).forEach( function( item ) {
-    tmp = item.split( '=' );
-    paramObject[ tmp[0] ] = tmp[1];
-  });
-  
-  return paramObject;
-  
 }
