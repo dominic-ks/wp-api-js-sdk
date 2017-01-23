@@ -26,6 +26,7 @@ function wpAuth( appDetails ) {
       window.location = parts[0];
     }
     
+    //trigger the decide next auth action
     this.decideAuthAction();
     
   } else {
@@ -51,25 +52,39 @@ wpAuth.prototype = {
   
   constructor: wpAuth,
   
+  //a generic function to point undefined success, complete and error call backs from $.ajax
   genericFunction : function() {},
   
+  //what to do with errors
   logError : function( message ) {
     console.log( message );
   },
   
-  save: function() {
-    
-    localStorage.setItem( 'wp_rest_app_' + this.appDetails.clientKey , JSON.stringify( this ) );
-    
+  //handling of $.ajax errors, NB. default, no need to state explicitly
+  ajaxError : function( xhr , status , error ) {
+    this.logError( error + ': ' + xhr.responseJSON.message );
   },
   
+  //save the current object to the local storage
+  save : function() {
+    localStorage.setItem( 'wp_rest_app_' + this.appDetails.clientKey , JSON.stringify( this ) );
+  },
+  
+  //direct a user to a url, given here so can be overwritten in case an in-app browser command is required instead
+  //e.g. cordova.InAppBrowser.open
+  openURL : function( url , target , params ) {
+    var openWindow = window.open( url , target , params );
+    return openWindow;
+  },
+  
+  //decide the next action in the auth process
   decideAuthAction : function() {
 
     if( this.appStatus === 'verified' ) {
 
-      //if the app has a verified status, assume we're good to go
-      this.loggedInUser();
+      //potential to do something if the app is verified...
       
+    //if we're ready to trigger auth...
     } else if( this.appStatus === 'auth_ready' ) {
       
       var data = {
@@ -99,7 +114,7 @@ wpAuth.prototype = {
 
   },
 
-  //process and ajax request
+  //function responsible for handling all auth and api calls
   wpExecute : function( request ) {
     
     //set defaults
@@ -107,7 +122,7 @@ wpAuth.prototype = {
       url: false,
       method: 'GET',
       success: this.genericFunction,
-      error: this.genericFunction,
+      error: this.ajaxError,
       complete: this.genericFunction,
       sign: true,
       data: {},
@@ -124,9 +139,11 @@ wpAuth.prototype = {
     if( request.url === false ) {
       this.logError( 'URL is required for the wpAuth.execute() method.' );
     }
-
-    //swap out window.open function 
-    //window.open = cordova.InAppBrowser.open;
+    
+    //check if a full url has been parsed or only an endpoint slug
+    if( request.url.indexOf( this.appDetails.restURL ) === -1 ) {
+      request.url = this.appDetails.restURL + this.appDetails.jsonSlug + request.url;
+    }
     
     //sign the request unless it doesn't need it...
     if( request.sign === true ) {
@@ -138,17 +155,25 @@ wpAuth.prototype = {
       request.data.oauth_version = this.restRoutes.authentication.oauth1.version;
       request.data.oauth_callback = this.appDetails.callBackURL;
       
-      if( typeof( request.data.oauth_verifier ) !== 'undefined' ) {
-        request.data.oauth_token = request.data.oauth_token;
-        request.data.oauth_verifier = request.data.oauth_verifier;
+      if( typeof( this.authTokens.oauthVerifier ) !== 'undefined' ) {
+        request.data.oauth_verifier = this.authTokens.oauthVerifier;
+      }
+      
+      if( typeof( this.authTokens.oauthToken ) !== 'undefined' ) {
+        request.data.oauth_token = this.authTokens.oauthToken;
+      }
+      
+      if( typeof( this.authTokens.oauthTokenSecret ) !== 'undefined' ) {
+        request.data.oauth_token_secret = this.authTokens.oauthTokenSecret;
       }
       
       var oauthTokenSecret = '';
       
-      if( this.authTokens.oauthTokenSecret !== null ) { 
+      if( typeof( this.authTokens.oauthTokenSecret ) !== 'undefined' ) { 
         oauthTokenSecret = this.authTokens.oauthTokenSecret;
       }
 
+      //sign the request
       request.data.oauth_signature = this.signRequest( request.method , request.url , request.data , this.appDetails.clientSecret , oauthTokenSecret );
       
     }
@@ -156,7 +181,7 @@ wpAuth.prototype = {
     //process the ajax
     $.ajax({
       method: request.method,
-      url: request.url,
+      url: request.url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
       data: request.data,
       success: request.success.bind( this ),
       error: request.error.bind( this ),
@@ -164,53 +189,8 @@ wpAuth.prototype = {
     });
 
   },
-
-  //process and ajax request
-  wpAjax : function( httpMethod , ajaxURL , successCallback , completeCallback , sign , requestData ) {
-
-    //swap out window.open function 
-    //window.open = cordova.InAppBrowser.open;
-    
-    var data = {};
-    
-    //sign the request unless it doesn't need it...
-    if( sign === true ) {
-
-      data = {
-        oauth_consumer_key: this.appDetails.clientKey,
-        oauth_signature_method: 'HMAC-SHA1',
-        oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
-        oauth_nonce: this.getRandomString(),
-        oauth_version: this.restRoutes.authentication.oauth1.version,
-        oauth_callback: this.appDetails.callBackURL,
-      }
-      
-      if( typeof( requestData.oauth_verifier ) !== 'undefined' ) {
-        data.oauth_token = requestData.oauth_token;
-        data.oauth_verifier = requestData.oauth_verifier;
-      }
-      
-      var oauthTokenSecret = '';
-      
-      if( this.authTokens.oauthTokenSecret !== null ) { 
-        oauthTokenSecret = this.authTokens.oauthTokenSecret;
-      }
-
-      data.oauth_signature = this.signRequest( httpMethod , ajaxURL , data , this.appDetails.clientSecret , oauthTokenSecret );
-      
-    }
-
-    //process the ajax
-    $.ajax({
-      method: httpMethod,
-      url: ajaxURL,
-      data: data,
-      success: successCallback.bind( this ),
-      complete: completeCallback.bind( this ),
-    });
-
-  },
   
+  //success function for requesting credentials
   requestTempCredentials : function( requestString ) {
 
     var getParams = this.getGet( requestString );
@@ -220,7 +200,7 @@ wpAuth.prototype = {
     this.save();
 
     //open / redirect to the auth screen
-    var authWindow = window.open( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no' );
+    var authWindow = this.openURL( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no' );
 
     //this only works for apps where an in-app browser window is utilised
     //otherwise the auth window will send the user back to the call back url and
@@ -262,6 +242,8 @@ wpAuth.prototype = {
     
   },
   
+  //process the auth ready, in a separate function so that is can be handled
+  //whether pulled from an in-app browser window or by catching credentials on a callback
   processAuthReady : function( requestString ) {
     
     var getParams = this.getGet( requestString );
@@ -274,6 +256,7 @@ wpAuth.prototype = {
     
   },
   
+  //store the auth credentials when they've been retrieved
   storeAuthCredentials : function( requestString ) {
 
     var getParams = this.getGet( requestString );
@@ -286,72 +269,25 @@ wpAuth.prototype = {
     this.save();
     
   },
-  
-  //function when we're logged in and rocking
-  loggedInUser : function() {
-    
-    /*this.wpExecute({
-      url: this.appDetails.cookielessURL + this.appDetails.jsonSlug + 'wp/v2/users/me',
-      success: function( response ) {
-        alert( 'Welcome ' + response.name );
-      },
-    });
-    
-    return;*/
-
-    var httpMethod = 'GET';
-    var url = this.appDetails.restURL + this.appDetails.jsonSlug + 'wp/v2/users/me';
-
-    var data = {
-      oauth_consumer_key: this.appDetails.clientKey,
-      oauth_signature_method: 'HMAC-SHA1',
-      oauth_timestamp: Math.floor( Date.now() / 1000 ).toString(),
-      oauth_nonce: this.getRandomString(),
-      oauth_version: this.restRoutes.authentication.oauth1.version,
-      oauth_token: this.authTokens.oauthToken,
-      oauth_token_secret: this.authTokens.oauthTokenSecret,
-    }
-
-    data.oauth_signature = this.signRequest( httpMethod , url , data , this.appDetails.clientSecret , this.authTokens.oauthTokenSecret );
-
-    $.ajax({
-      url: url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
-      method: httpMethod,
-      data: data,
-
-      success: function( response ) {
-
-        alert( 'Welcome ' + response.name );
-
-      },
-
-    });
-
-  },
 
   //sign requests
   signRequest : function( httpMethod , url , parameters , consumerSecret , tokenSecret ) {
-
     var signature = oauthSignature.generate( httpMethod , url , parameters , consumerSecret , tokenSecret , { encodeSignature: false } );
-
     return signature;
-
   },
 
   //generate random strings to use as nonces
   getRandomString : function() {
-
     var text = "";
     var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     for( var i = 0; i < 10; i++ ) {
       text += possible.charAt( Math.floor( Math.random() * possible.length ) );
     }
-
     return text;
-
   },
 
-  //return an object of GET parameters
+  //return an object of GET parameters either from a stated string, 
+  //or pulls from current window.location if no string is provided
   getGet : function( stringer ) {
 
     var paramObject = [];
