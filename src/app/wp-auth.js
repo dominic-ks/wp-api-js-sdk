@@ -62,6 +62,7 @@ wpAuth.prototype = {
   
   //handling of $.ajax errors, NB. default, no need to state explicitly
   ajaxError : function( xhr , status , error ) {
+    console.log( xhr );
     this.logError( error + ': ' + xhr.responseJSON.message );
   },
   
@@ -77,12 +78,21 @@ wpAuth.prototype = {
     return openWindow;
   },
   
+  runCallbackFunction : function( name , args ) {
+    var fn = window[ name ];
+    if( typeof fn !== 'function' ) {
+      return;      
+    }
+    fn.apply( window , args );
+  },
+  
   //decide the next action in the auth process
   decideAuthAction : function() {
 
     if( this.appStatus === 'verified' ) {
 
       //potential to do something if the app is verified...
+      this.runCallbackFunction( this.appDetails.callbackFunction , [ this ] );
       
     //if we're ready to trigger auth...
     } else if( this.appStatus === 'auth_ready' ) {
