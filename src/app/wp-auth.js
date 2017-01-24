@@ -27,22 +27,13 @@ function wpAuth( appDetails ) {
     }
     
     //trigger the decide next auth action
-    this.decideAuthAction();
+    //this.decideAuthAction();
     
   } else {
   
     //if no saved app details are found, we start building the object
     this.appDetails = appDetails;
     this.authTokens = {};
-
-    //set the auth variales
-    this.wpExecute({
-      method: 'GET',
-      url: this.appDetails.restURL + this.appDetails.jsonSlug,
-      success: this.storeRESTroutes, 
-      complete: this.decideAuthAction,
-      sign: false,
-    });
     
   }
   
@@ -63,7 +54,7 @@ wpAuth.prototype = {
   //handling of $.ajax errors, NB. default, no need to state explicitly
   ajaxError : function( xhr , status , error ) {
     console.log( xhr );
-    this.logError( error + ': ' + xhr.responseJSON.message );
+    this.logError( error + ': ' + xhr.responseText );
   },
   
   //save the current object to the local storage
@@ -84,6 +75,10 @@ wpAuth.prototype = {
       return;      
     }
     fn.apply( window , args );
+  },
+  
+  authorize : function() {
+    this.decideAuthAction();
   },
   
   //decide the next action in the auth process
@@ -111,7 +106,7 @@ wpAuth.prototype = {
         data: data
       });
 
-    } else {
+    } else if( this.appStatus === 'discovered' ) {
 
       //otherwise get the temp credentials
       this.wpExecute({
@@ -120,6 +115,16 @@ wpAuth.prototype = {
         success: this.requestTempCredentials,
       });
 
+    } else {
+
+      //set the auth variales
+      this.wpExecute({
+        url: this.appDetails.restURL + this.appDetails.jsonSlug,
+        success: this.storeRESTroutes, 
+        complete: this.decideAuthAction,
+        sign: false,
+      });
+      
     }
 
   },
@@ -179,7 +184,7 @@ wpAuth.prototype = {
       
       var oauthTokenSecret = '';
       
-      if( typeof( this.authTokens.oauthTokenSecret ) !== 'undefined' ) { 
+      if( typeof( this.authTokens.oauthTokenSecret ) !== 'undefined' && this.appStatus !== 'temp_credentials_received' ) { 
         oauthTokenSecret = this.authTokens.oauthTokenSecret;
       }
 
@@ -207,6 +212,7 @@ wpAuth.prototype = {
     
     //save the temp token secret
     this.authTokens.oauthTokenSecret = getParams.oauth_token_secret;
+    this.appStatus = 'temp_credentials_received';
     this.save();
 
     //open / redirect to the auth screen
