@@ -94,7 +94,7 @@ var appInit = function( authObject ) {
 }
 ```
 
- # Options availble for wpAuth.wpExecute() method
+# Options availble for wpAuth.wpExecute() method
  ```
  wpAuth.wpExecute({
   method: //string - optional default = 'GET' - http method - GET, POST, PATCH, DELETE
@@ -107,7 +107,7 @@ var appInit = function( authObject ) {
  });
  ```
   
- # Notes
+# Notes
    - As mentioned above, it is generally recommended not to provide the client secret to a client side application as it provides the ability to others to trick users into authenticating a different app to use your service. However, for a Phonegap / Cordova app I have yet to find a solution to this that doesn't result in the same issue (sending ajax queries to a server to perform request signing or auth functions, for example).
   
    - ADDITIONAL_COOKIELESS_REST_URL is currently required when making authenticated requests to the WordPress Oauth 1.0 server due to this issue - https://github.com/WP-API/OAuth1/issues/156 - this is the easiest way I have found to date to send a request without a cookie by default
