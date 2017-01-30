@@ -70,14 +70,42 @@ $( document ).ready( function() {
 
 //call back function that will fire when / if the app is authorized
 var appInit = function( authObject ) {
+
+  //get the current users details and alert their name
   authObject.wpExecute({
-    url: 'wp/v2/users/me',
+    url: 'wp/v2/users/me/',
     success: function( response ) {
       alert( 'Welcome ' + response.name );
     },
   });
+
+  //add a new post with title "My new test post"
+  authObject.wpExecute({
+    method: 'POST',
+    url: 'wp/v2/posts/',
+    success: function( response ) {
+      console.log( response );
+    },
+    data: {
+      title : 'My new test post',
+    },
+  });
+
 }
 ```
+
+ # Options availble for wpAuth.wpExecute() method
+ ```
+ wpAuth.wpExecute({
+  method: //string - optional default = 'GET' - http method - GET, POST, PATCH, DELETE
+  url: //string - required - url endpoint - either full URL or from wp/v2/ onwards as per example
+  success: //function - optional default = 'genericFunction()' (does nothing) - ajax success function to fire if request is successful
+  error: //function - optional default = 'ajaxError()' (logs the error text to the console) - ajax error function to fire if request is unsucessful
+  complete: //function - optional default = 'genericFunction()' (does nothing) - ajax complete function to fire when request has been completed
+  sign: //bool - optional default = TRUE - whether or not to sign the request, generally not required
+  data: //object - optional default = {} - JS object of params to send with the request
+ });
+ ```
   
  # Notes
    - As mentioned above, it is generally recommended not to provide the client secret to a client side application as it provides the ability to others to trick users into authenticating a different app to use your service. However, for a Phonegap / Cordova app I have yet to find a solution to this that doesn't result in the same issue (sending ajax queries to a server to perform request signing or auth functions, for example).
