@@ -99,7 +99,7 @@ wpAuth.prototype = {
       
       this.wpExecute({
         method: 'POST',
-        url: this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + this.authTokens.oauthVerifier,
+        url: this.restRoutes.authentication.oauth1.access/* + '?oauth_verifier=' + this.authTokens.oauthVerifier*/,
         success: this.storeAuthCredentials,
         complete: this.decideAuthAction,
         sign: true,
@@ -194,7 +194,7 @@ wpAuth.prototype = {
     }
 
     //process the ajax
-    $.ajax({
+    this.wpExecuteRequest({
       method: request.method,
       url: request.url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
       data: request.data,
@@ -203,6 +203,13 @@ wpAuth.prototype = {
       complete: request.complete.bind( this ),
     });
 
+  },
+  
+  wpExecuteRequest : function( request ) {
+
+    //process the ajax
+    $.ajax( request );
+    
   },
   
   //success function for requesting credentials
