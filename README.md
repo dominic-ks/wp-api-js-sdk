@@ -47,11 +47,6 @@ Then include both of these in your project:
 /vendor/dominic-ks/wp-api-js-sdk/src/app/wp-auth.js
 ```
 
-# Other Dependencies
-<ul>
-<li>jQuery</li>
-</ul>
-
 # Basic usage
 
 ```
