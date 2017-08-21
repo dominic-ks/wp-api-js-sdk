@@ -46,6 +46,11 @@ Then include both of these in your project:
 ```
 /vendor/dominic-ks/wp-api-js-sdk/src/app/wp-auth.js
 ```
+#Other dependancies
+<ul>
+  <li>WordPres 4.5+</li>
+  <li><a href="https://wordpress.org/plugins/rest-api-oauth1/">The Rest OAuth1a Server plugin</a></li>
+  </ul>
 
 # Basic usage
 
