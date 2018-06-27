@@ -23,7 +23,7 @@ function wpAuth( appDetails ) {
       //process the results
       this.processAuthReady( parts[1] );
       //redirect to self minus the request params
-      window.location = parts[0];
+      //window.location = parts[0];
     }
     
     //trigger the decide next auth action
@@ -34,6 +34,7 @@ function wpAuth( appDetails ) {
     //if no saved app details are found, we start building the object
     this.appDetails = appDetails;
     this.authTokens = {};
+    this.cache = {};
     
   }
   
@@ -43,8 +44,32 @@ wpAuth.prototype = {
   
   constructor: wpAuth,
   
-  //a generic function to point undefined success, complete and error call backs from $.ajax
-  genericFunction : function() {},
+  //a generic function to point undefined success call backs from $.ajax
+  genericSuccess : function( response ) {
+    console.log( response );
+  },
+  
+  //a generic function to point undefined complete call backs from $.ajax
+  genericComplete : function( response ) {
+    
+    //check that this was a get request, otherwise clear the cache
+    if( response.config.method !== 'GET' ) {
+      this.clearCache( response );
+      return false;
+    }
+    
+    var requestRoute = response.config.url;
+    
+    //check that the result was not an error
+    if( response.status != 200 ) {
+      return false;
+    }
+    
+    this.cache.lastUpdated = new Date();
+    this.cache[ requestRoute ] = response.data;
+    this.save();
+    
+  },
   
   //what to do with errors
   logError : function( message ) {
@@ -60,6 +85,22 @@ wpAuth.prototype = {
   //save the current object to the local storage
   save : function() {
     localStorage.setItem( 'wp_rest_app_' + this.appDetails.clientKey , JSON.stringify( this ) );
+  },
+  
+  //logout of the app - by default will delete everything from the local storage and redirect to the redirect URI
+  logout : function() {
+    localStorage.clear();
+    window.location = this.appDetails.callBackURL;
+  },
+  
+  clearCache : function( response ) {
+    this.cache = {};
+    this.save();
+    this.nextReload( response );
+  },
+  
+  nextReload : function( response ) {
+    window.location.reload();
   },
   
   //direct a user to a url, given here so can be overwritten in case an in-app browser command is required instead
@@ -99,11 +140,12 @@ wpAuth.prototype = {
       
       this.wpExecute({
         method: 'POST',
-        url: this.restRoutes.authentication.oauth1.access + '?oauth_verifier=' + this.authTokens.oauthVerifier,
+        url: this.restRoutes.authentication.oauth1.access/* + '?oauth_verifier=' + this.authTokens.oauthVerifier*/,
         success: this.storeAuthCredentials,
         complete: this.decideAuthAction,
         sign: true,
-        data: data
+        data: data,
+        cache: false,
       });
 
     } else if( this.appStatus === 'discovered' ) {
@@ -113,6 +155,7 @@ wpAuth.prototype = {
         method: 'GET',
         url: this.restRoutes.authentication.oauth1.request,
         success: this.requestTempCredentials,
+        cache: false,
       });
 
     } else {
@@ -123,6 +166,7 @@ wpAuth.prototype = {
         success: this.storeRESTroutes, 
         complete: this.decideAuthAction,
         sign: false,
+        cache: false,
       });
       
     }
@@ -136,15 +180,16 @@ wpAuth.prototype = {
     var defaults = {
       url: false,
       method: 'GET',
-      success: this.genericFunction,
+      success: this.genericSuccess,
       error: this.ajaxError,
-      complete: this.genericFunction,
+      complete: this.genericComplete,
       sign: true,
       data: {},
+      cache: true,
     }
     
     //check request object and set defaults
-    for( var key in defaults ) { 
+    for( var key in defaults ) {
       if( typeof( request[ key ] ) === 'undefined' ) {
         request[ key ] = defaults[ key ];
       }
@@ -158,6 +203,17 @@ wpAuth.prototype = {
     //check if a full url has been parsed or only an endpoint slug
     if( request.url.indexOf( this.appDetails.restURL ) === -1 ) {
       request.url = this.appDetails.restURL + this.appDetails.jsonSlug + request.url;
+    }
+    
+    //check for a cached request, NB only for GET methods
+    if( request.cache === true && request.method === 'GET' ) {
+      
+      var cacheURL = request.url.replace( this.appDetails.restURL , this.appDetails.cookielessURL );
+      
+      if( typeof( this.cache[ cacheURL ] ) !== 'undefined' ) {
+        return request.success( this.cache[ cacheURL ] );
+      }
+      
     }
     
     //sign the request unless it doesn't need it...
@@ -192,9 +248,9 @@ wpAuth.prototype = {
       request.data.oauth_signature = this.signRequest( request.method , request.url , request.data , this.appDetails.clientSecret , oauthTokenSecret );
       
     }
-
+    
     //process the ajax
-    $.ajax({
+    return this.wpExecuteRequest({
       method: request.method,
       url: request.url.replace( this.appDetails.restURL , this.appDetails.cookielessURL ),
       data: request.data,
@@ -205,8 +261,19 @@ wpAuth.prototype = {
 
   },
   
+  wpExecuteRequest : function( request ) {
+    
+    console.log( request );
+
+    //process the ajax
+    return $.ajax( request );
+    
+  },
+  
   //success function for requesting credentials
   requestTempCredentials : function( requestString ) {
+    
+    requestString = this.processReturn( requestString );
 
     var getParams = this.getGet( requestString );
     
@@ -216,12 +283,12 @@ wpAuth.prototype = {
     this.save();
 
     //open / redirect to the auth screen
-    var authWindow = this.openURL( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no' );
+    window.authWindow = this.openURL( this.restRoutes.authentication.oauth1.authorize + '/?' + requestString , '_self' , 'location=no,zoom=no,clearcache=yes,clearsessioncache=yes,toolbar=no' );
 
     //this only works for apps where an in-app browser window is utilised
     //otherwise the auth window will send the user back to the call back url and
     //will be picked up by decideAuthAction
-    authWindow.addEventListener( 'loadstart' , function( InAppBrowserEvent ) {
+    window.authWindow.addEventListener( 'loadstart' , function( InAppBrowserEvent ) {
 
       //split the url by the ?
       var parts = InAppBrowserEvent.url.split( '?' );
@@ -232,10 +299,12 @@ wpAuth.prototype = {
       }
 
       //if so close the auth window
-      authWindow.close();
+      window.authWindow.close();
       
       //process the results
       this.processAuthReady( parts[1] );
+      
+      this.decideAuthAction();
 
     }.bind( this ) );
     
@@ -243,6 +312,8 @@ wpAuth.prototype = {
   
   //store the auth urls
   storeRESTroutes : function( jsonRoutes ) {
+    
+    jsonRoutes = this.processReturn( jsonRoutes );
     
     //store the entire routes object in a variable
     this.restRoutes = jsonRoutes;
@@ -274,6 +345,8 @@ wpAuth.prototype = {
   
   //store the auth credentials when they've been retrieved
   storeAuthCredentials : function( requestString ) {
+    
+    requestString = this.processReturn( requestString );
 
     var getParams = this.getGet( requestString );
     
@@ -320,6 +393,12 @@ wpAuth.prototype = {
 
     return paramObject;
 
+  },
+  
+  //process data returned from an ajax request
+  //returns the param by default but can be overwritten if required, e.g. if using Angular $http
+  processReturn : function( response ) {
+    return response;
   }
 
 }
